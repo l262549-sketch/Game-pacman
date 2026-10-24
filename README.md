@@ -1,2 +1,5 @@
 # Game-pacman
 pac-man dev.
+if you want to make changes make a new file 
+dont edit the previous file 
+if you want to add change you can only add changes to pacman.cpp
