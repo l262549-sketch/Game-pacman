@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include <cmath>
 
 // Map Dimensions and Tile Sizing
 const int MAP_ROWS = 31;
@@ -29,7 +30,7 @@ TileMap CreatePacmanMap()
     TileMap map;
     map.tileSize = TILE_SIZE;
     map.screenOffsetX = 20;
-    map.screenOffsetY = 20;
+    map.screenOffsetY = 50;
 
     // Grid Encoding:
     // 0 = Empty Path
@@ -52,9 +53,9 @@ TileMap CreatePacmanMap()
             {0, 0, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 0, 0}, // Row 10
             {0, 0, 1, 2, 2, 2, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 2, 2, 2, 1, 0, 0}, // Row 11
             {1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1, 1, 0, 0, 1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1, 1}, // Row 12 (Ghost House entrance)
-            {2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1, 1, 2, 2, 2, 2}, // Row 13 (Upper Warp Tunnel)
+            {2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 1, 0, 0, 0, 0, 1, 1, 2, 1, 1, 2, 1, 1, 2, 2, 2, 2}, // Row 13 (Upper Warp Tunnel)
             {1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1}, // Row 14
-            {1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 0, 0, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1}, // Row 15
+            {1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 0, 0, 0, 0, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1}, // Row 15
             {2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 2, 2, 2}, // Row 16 (Lower Warp Tunnel)
             {1, 1, 1, 2, 1, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 1, 1}, // Row 17
             {0, 0, 1, 2, 2, 2, 2, 1, 1, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 2, 2, 2, 2, 1, 0, 0}, // Row 18
@@ -168,20 +169,52 @@ bool CanMove(TileMap map, Vector2 candidatePos, float radius)
 }
 
 
+//----pac man animation -------------------------------------------------------
+
+void DrawPacman(Pacman pacman)
+{
+    // 1. Pick the direction Pac-Man is facing (0=Right, 90=Down, 180=Left, 270=Up)
+    float facingAngle = 0.0f; // Default: Right
+
+    if (pacman.direction.x == 1)       facingAngle = 0.0f;   // Right
+    else if (pacman.direction.x == -1) facingAngle = 180.0f; // Left
+    else if (pacman.direction.y == -1) facingAngle = 270.0f; // Up
+    else if (pacman.direction.y == 1)  facingAngle = 90.0f;  // Down
+
+    // 2. Smoothly oscillate mouth opening between 0 and 40 degrees while moving
+    float mouthAngle = 0.0f;
+    if (pacman.direction.x != 0 || pacman.direction.y != 0)
+    {
+        mouthAngle = 40.0f * fabsf(sinf((float)GetTime() * 10.0f));
+    }
+
+    // 3. Draw a full circle when closed, or a pie slice when open
+    if (mouthAngle < 1.0f)
+    {
+        DrawCircleV(pacman.position, pacman.radius, YELLOW);
+    }
+    else
+    {
+        float startAngle = facingAngle + mouthAngle;
+        float endAngle = facingAngle + 360.0f - mouthAngle;
+        DrawCircleSector(pacman.position, pacman.radius, startAngle, endAngle, 36, YELLOW);
+    }
+}
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main()
 {
     const int screenWidth = (MAP_COLS * TILE_SIZE) + 40;
-    const int screenHeight = (MAP_ROWS * TILE_SIZE) + 40;
+    const int screenHeight = (MAP_ROWS * TILE_SIZE) + 70;
 
     InitWindow(screenWidth, screenHeight, "Pac-Man Map - Raylib (Procedural)");
     SetTargetFPS(60);
 
     TileMap pacmanMap = CreatePacmanMap();
 
-    // Spawn Pac-Man at Row 16, Column 9 (Empty path in bottom section)
+    // Spawn Pac-Man at Row 22, Column 13 (Empty path in bottom section)
     Pacman pacman;
     pacman.position = GetTileCenter(pacmanMap, 22, 13);
     pacman.direction = Vector2{0, 0};
@@ -246,9 +279,7 @@ int main()
         ClearBackground(BLACK);
 
         DrawMap(pacmanMap);
-
-        // Draw Pac-Man as a yellow circle
-        DrawCircleV(pacman.position, pacman.radius, YELLOW);
+        DrawPacman(pacman); // Replaces DrawCircleV
 
         EndDrawing();
     }
