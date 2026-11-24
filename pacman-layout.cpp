@@ -1,4 +1,5 @@
 #include "raylib.h"
+#include <cmath>
 
 // Map Dimensions and Tile Sizing
 const int MAP_ROWS = 31;
@@ -18,7 +19,7 @@ TileMap CreatePacmanMap() {
     TileMap map;
     map.tileSize = TILE_SIZE;
     map.screenOffsetX = 20;
-    map.screenOffsetY = 20;
+    map.screenOffsetY = 50;
 
     // Grid Encoding:
     // 0 = Empty Path
