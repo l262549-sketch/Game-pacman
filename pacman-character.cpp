@@ -91,3 +91,46 @@ typedef struct Vector2 {
 
 // vector2 is raylib word which is used to define its pisition in 2 d graph
 //bool can move for smoth changes
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+    // Draws Pac-Man with an animated chomping mouth facing his movement direction
+void DrawPacman(Pacman pacman)
+{
+    // 1. Pick the direction Pac-Man is facing (in Raylib: 0=Down, 90=Right, 180=Up, 270=Left)
+    float facingAngle = 90.0f; // Default: Right
+
+    if (pacman.direction.x == 1)       facingAngle = 90.0f;  // Right
+    else if (pacman.direction.x == -1) facingAngle = 270.0f; // Left
+    else if (pacman.direction.y == -1) facingAngle = 180.0f; // Up
+    else if (pacman.direction.y == 1)  facingAngle = 0.0f;   // Down
+
+    // 2. Smoothly oscillate mouth opening between 0 and 40 degrees while moving
+    float mouthAngle = 0.0f;
+    if (pacman.direction.x != 0 || pacman.direction.y != 0)
+    {
+        mouthAngle = 40.0f * fabsf(sinf((float)GetTime() * 10.0f));
+    }
+
+    // 3. Draw a full circle when closed, or a pie slice when open
+    if (mouthAngle < 1.0f)
+    {
+        DrawCircleV(pacman.position, pacman.radius, YELLOW);
+    }
+    else
+    {
+        float startAngle = facingAngle + mouthAngle;
+        float endAngle = facingAngle + 360.0f - mouthAngle;
+        DrawCircleSector(pacman.position, pacman.radius, startAngle, endAngle, 36, YELLOW);
+    }
+}
+
+
+
+
+
