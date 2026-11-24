@@ -90,3 +90,4 @@ typedef struct Vector2 {
 
 
 // vector2 is raylib word which is used to define its pisition in 2 d graph
+//bool can move for smoth changes
