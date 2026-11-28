@@ -56,7 +56,7 @@ enum GhostState
 };
 enum GameState
 {
-    ready, playing, eatfreeze, dying, levelclear, gameover
+    title, ready, playing, eatfreeze, dying, levelclear, gameover
 };
 
 struct Ghost
@@ -84,6 +84,16 @@ struct LevelConfig
     float idlelimit;      // seconds without eating before the next ghost is pushed out
 };
 
+struct Sounds
+{
+    Music chomp;
+    Sound eatghost;
+    Sound death;
+    Sound powerup;
+    Music titlesong;
+    Music siren;    // looping ghost sound during game
+};
+
 struct Game
 {
     TileMap map;
@@ -104,6 +114,8 @@ struct Game
     int popupvalue;
     Vector2 popuppos;
     float animtime;
+    Sounds sfx;
+    float chomptimer;
 };
 
 // Function to construct and return initial map data
@@ -681,6 +693,7 @@ void resetactors(Game& game)
     game.chain = 0;
     game.idletimer = 0.0f;
     game.dotseaten = 0;
+    game.chomptimer = 0.0f;
 }
 
 void loadlevel(Game& game)
@@ -711,7 +724,7 @@ void newgame(Game& game)
     loadlevel(game);
 }
 
-// input, wall collision and tunnel teleport (same logic as code 1, just moved in here)
+// input, wall collision and tunnel teleport
 void movepac(Game& game)
 {
     Pacman& pac = game.pac;
@@ -774,7 +787,16 @@ void eatpellets(Game& game)
         game.dotseaten++;
         game.idletimer = 0.0f;
         if (power)
+        {
             startscared(game);
+            PlaySound(game.sfx.powerup);
+        }
+        else
+        {
+            game.chomptimer = 0.2f; // keep chomping for 0.2s
+            if (!IsMusicStreamPlaying(game.sfx.chomp))
+                PlayMusicStream(game.sfx.chomp);
+        }
     }
 }
 
@@ -803,12 +825,16 @@ void checkhits(Game& game)
             game.popuppos = g.pos;
             game.state = eatfreeze; // short pause after eating a ghost
             game.statetimer = 0.75f;
+            PlaySound(game.sfx.eatghost);
             return;
         }
         else
         {
             game.state = dying;
             game.statetimer = 0.0f;
+            StopMusicStream(game.sfx.siren);
+            StopMusicStream(game.sfx.chomp);
+            PlaySound(game.sfx.death);
             return;
         }
     }
@@ -839,6 +865,8 @@ void updateplaying(Game& game)
     {
         game.state = levelclear;
         game.statetimer = 2.0f;
+        StopMusicStream(game.sfx.siren);
+        StopMusicStream(game.sfx.chomp);
         return;
     }
 
@@ -854,7 +882,24 @@ void updategame(Game& game)
 
     switch (game.state)
     {
+    case title:
+        UpdateMusicStream(game.sfx.titlesong);
+        if (IsKeyPressed(KEY_ENTER))
+        {
+            StopMusicStream(game.sfx.titlesong);
+            newgame(game); // builds the level and switches to "ready"
+        }
+        break;
+
     case ready:
+        game.statetimer -= frametime;
+        if (game.statetimer <= 0.0f)
+        {
+            PlayMusicStream(game.sfx.siren);
+            game.state = playing;
+        }
+        break;
+
     case eatfreeze:
         game.statetimer -= frametime;
         if (game.statetimer <= 0.0f)
@@ -863,6 +908,14 @@ void updategame(Game& game)
 
     case playing:
         updateplaying(game);
+        UpdateMusicStream(game.sfx.siren);
+        UpdateMusicStream(game.sfx.chomp);
+        if (game.chomptimer > 0.0f)
+        {
+            game.chomptimer -= frametime;
+            if (game.chomptimer <= 0.0f)
+                StopMusicStream(game.sfx.chomp);
+        }
         break;
 
     case dying:
@@ -1001,8 +1054,82 @@ void drawcentered(const char* text, Vector2 center, int size, Color color, bool 
     DrawText(text, (int)(center.x - w / 2), (int)(center.y - size / 2), size, color);
 }
 
+void drawtitle(const Game& game)
+{
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+    float cx = w / 2.0f;
+    float time = game.animtime;
+
+    DrawRectangleLines(10, 10, w - 20, h - 20, BLUE);
+    DrawRectangleLines(16, 16, w - 32, h - 32, BLUE);
+
+    drawcentered("PAC-MAN", Vector2{ cx + 4, 174 }, 80, BLUE, false);
+    drawcentered("PAC-MAN", Vector2{ cx, 170 }, 80, YELLOW, false);
+
+    // chase animation: pac-man chases ghosts, then ghosts (blue) get chased back
+    float y = 300.0f;
+    float t = fmodf(time, 12.0f);
+    bool chase = t < 6.0f;
+    float p = (chase ? t : t - 6.0f) / 6.0f;
+    float pacx = chase ? -20.0f + p * (w + 220.0f) : (w + 60.0f) - p * (w + 80.0f);
+
+    DrawCircleV(Vector2{ pacx, y }, 10.0f, YELLOW);
+    const Color colors[ghostcount] = { RED, PINK, SKYBLUE, ORANGE };
+    for (int i = 0; i < ghostcount; i++)
+    {
+        Ghost g = {};
+        g.name = (GhostName)i;
+        g.state = roaming;
+        g.scared = !chase;
+        g.color = colors[i];
+        g.dr = 0;
+        g.dc = chase ? 1 : -1;
+        g.pos = Vector2{ pacx - 40.0f * (i + 1), y };
+        drawghost(g, false, time);
+    }
+
+    // point legend
+    DrawCircle(w / 2 - 120, 420, 3, RAYWHITE);
+    DrawText("10 PTS", w / 2 - 105, 410, 20, RAYWHITE);
+    DrawCircle(w / 2 + 30, 420, 7, GOLD);
+    DrawText("50 PTS", w / 2 + 45, 410, 20, RAYWHITE);
+
+    drawcentered("ARROW KEYS / WASD TO MOVE", Vector2{ cx, 480 }, 20, SKYBLUE, false);
+
+    if (((int)(time * 2.0f)) % 2 == 0)
+        drawcentered("PRESS ENTER TO START", Vector2{ cx, 600 }, 24, YELLOW, false);
+}
+
+void drawgameover(const Game& game)
+{
+    int w = GetScreenWidth();
+    int h = GetScreenHeight();
+    float cx = w / 2.0f;
+
+    // darken everything behind the panel
+    DrawRectangle(0, 0, w, h, Fade(BLACK, 0.8f));
+
+    Rectangle panel = { cx - 200.0f, h / 2.0f - 130.0f, 400.0f, 260.0f };
+    DrawRectangleRec(panel, BLACK);
+    DrawRectangleLinesEx(panel, 3.0f, BLUE);
+
+    drawcentered("GAME OVER", Vector2{ cx, panel.y + 55 }, 40, RED, false);
+    drawcentered(TextFormat("SCORE  %d", game.score), Vector2{ cx, panel.y + 125 }, 28, RAYWHITE, false);
+    drawcentered(TextFormat("LEVEL  %d", game.level), Vector2{ cx, panel.y + 165 }, 20, SKYBLUE, false);
+
+    if (((int)(game.animtime * 2.0f)) % 2 == 0)
+        drawcentered("PRESS ENTER TO PLAY AGAIN", Vector2{ cx, panel.y + 220 }, 18, YELLOW, false);
+}
+
 void drawgame(const Game& game)
 {
+    if (game.state == title)
+    {
+        drawtitle(game);
+        return;
+    }
+
     bool flashmaze = (game.state == levelclear) && (((int)(game.statetimer * 4.0f)) % 2 == 0);
     DrawMap(game.map, flashmaze);
 
@@ -1048,10 +1175,7 @@ void drawgame(const Game& game)
     if (game.state == ready)
         drawcentered("READY!", mid, 20, YELLOW, true);
     if (game.state == gameover)
-    {
-        drawcentered("GAME OVER", mid, 22, RED, true);
-        drawcentered("press enter to restart", Vector2{ mid.x, mid.y + 24 }, 14, RAYWHITE, true);
-    }
+        drawgameover(game);
 
     // score, lives and level
     int hudy = game.map.screenOffsetY + MAP_ROWS * TILE_SIZE + 12;
@@ -1068,11 +1192,23 @@ int main()
     const int screenWidth = (MAP_COLS * TILE_SIZE) + 40;
     const int screenHeight = (MAP_ROWS * TILE_SIZE) + 40 + hudheight;
 
-    InitWindow(screenWidth, screenHeight, "Pac-Man Map - Raylib (Procedural)");
+    InitWindow(screenWidth, screenHeight, "Pac-Man");
+    InitAudioDevice();
     SetTargetFPS(60);
 
     Game game = {};
-    newgame(game);
+    game.state = title;
+
+    game.sfx.eatghost = LoadSound("sounds/eatghost.wav");
+    game.sfx.death = LoadSound("sounds/death.wav");
+    game.sfx.powerup = LoadSound("sounds/powerup.wav");
+    game.sfx.titlesong = LoadMusicStream("sounds/titlesong.wav");
+    game.sfx.siren = LoadMusicStream("sounds/ghostsiren.wav");
+    game.sfx.chomp = LoadMusicStream("sounds/chomp.wav");
+    game.sfx.chomp.looping = true;
+    game.sfx.titlesong.looping = true;
+    game.sfx.siren.looping = true;
+    PlayMusicStream(game.sfx.titlesong);
 
     // Game loop
     while (!WindowShouldClose())
@@ -1085,6 +1221,100 @@ int main()
         EndDrawing();
     }
 
+    UnloadSound(game.sfx.eatghost);
+    UnloadSound(game.sfx.death);
+    UnloadSound(game.sfx.powerup);
+    UnloadMusicStream(game.sfx.titlesong);
+    UnloadMusicStream(game.sfx.siren);
+    UnloadMusicStream(game.sfx.chomp);
+
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
+
+
+
+/*
+------------------------------------------------------------------------------------------------------------------------
+change 1 :
+/*I merged both programs into pacman.cpp. I haven't compiled or run it, so give it a quick test.
+
+Code 1 names and logic kept: TileMap, Pacman, CreatePacmanMap, DrawMap, GetTileCenter, CanMove, DrawPacman, and the same input, collision and tunnel logic.
+
+Taken from code 2: the ghosts, scatter/chase phases, power pellets, lives, levels, score and the game states. The map layout is code 2's, because it opens up the ghost house (rows 13–15).
+
+Changes to code 1 functions:
+
+DrawMap, GetTileCenter and CanMove now take const TileMap& instead of copying the whole map on every call (a 3.5 KB copy). Call sites look the same.
+DrawPacman takes a const Pacman& and uses facing for the mouth direction, so he keeps looking the right way when stopped.
+CanMove uses tunnelrowa and tunnelrowb instead of the hard-coded 13 and 16.
+
+Optimizations:
+
+The map layout is now static const and copied with memcpy, so it isn't rebuilt on the stack every level.
+DrawMap skips empty tiles.
+choosedir only computes the target tile when there is a real choice of directions.
+eatpellets merges the two near-identical branches into one.
+updategame is now a switch, and ready/eatfreeze share one case.
+Read-only functions (gettarget, choosedir, ghostspeed, drawgame) take const references.
+
+Pac-Man now uses the animated DrawPacman during play. Code 2 had replaced it with a plain circle, and the death animation is unchanged.
+
+Pacman
+Code
+·CPP
+
+why did you add string
+
+I added #include <cstring> for std::memcpy, which I used in CreatePacmanMap. It isn't the C++ <string> header, and the code doesn't use std::string.
+
+In code 1 and code 2, the layout was a local array copied into map.grid with a nested for loop. I made the layout static const so it's stored once, and memcpy copies it in a single call. memcpy lives in <cstring>, so the include is needed for that line.
+
+If you'd rather not add the include, you can put the original loop back and delete the #include <cstring> line:
+
+cpp
+for (int r = 0; r < MAP_ROWS; r++)
+    for (int c = 0; c < MAP_COLS; c++)
+        map.grid[r][c] = layout[r][c];
+
+It works the same way and the speed difference is negligible, since it only runs once per level. Keeping the static const layout is still worthwhile either way.
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+change 2 : 
+
+
+
+I merged both into pacman.cpp. I haven't compiled or run it, so give it a quick test. I used code 2 as the base, since it has the optimizations and the animated Pac-Man, and added the title screen, audio and game-over panel from code 1.
+
+Taken from code 1
+
+Title screen: a new title game state, drawtitle() and the title music. Enter stops the music and starts the game.
+Sounds: the Sounds struct, loading and unloading in main, InitAudioDevice and CloseAudioDevice. The sounds are:
+the siren loops during play
+chomp plays when dots are eaten
+power-up plays on a power pellet
+eat-ghost and death play on those events
+Game-over panel: drawgameover() replaces code 2's small "GAME OVER" text. It darkens the screen and shows the score, level and a blinking restart prompt.
+Game fields: sfx and chomptimer are added to Game.
+
+Kept from code 2
+
+const TileMap& and const Game& parameters, the static const map layout with memcpy, and DrawMap skipping empty tiles.
+choosedir only computing the target when there is a real choice, and the shared eatpellets branch.
+The tunnelrowa and tunnelrowb constants in CanMove.
+The animated DrawPacman. The death animation is unchanged.
+
+Changes I had to make to combine them
+
+updategame: it is still a switch, but ready and eatfreeze are now separate cases. ready starts the siren when it ends, and eatfreeze doesn't, because the siren is still running. There is also a new title case.
+eatpellets: the merged branch now plays the power-up sound for power pellets and starts the chomp for small dots.
+checkhits: it now plays the eat-ghost and death sounds.
+Chomp stopping: the chomp stream now stops when Pac-Man dies or the level clears, as well as the siren. Code 1 only stopped the siren, so chomp could get stuck partway through. resetactors also resets chomptimer.
+drawtitle: I replaced the nested ternary for ghost colours with a small colour array.
+Window title: changed to "Pac-Man", since "Pac-Man Map - Raylib (Procedural)" no longer fits.
+Cleanup: I removed the old chat comment at the bottom of code 2.
+
+*/
+
