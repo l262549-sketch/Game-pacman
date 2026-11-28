@@ -81,6 +81,16 @@ struct LevelConfig
     int clydedots;        // dots eaten before clyde leaves
     float idlelimit;      // seconds without eating before the next ghost is pushed out
 };
+struct Sounds
+{
+    Music chomp;
+    Sound eatghost;
+    Sound death;
+    Sound powerup;
+    Music titlesong;
+    Music siren;    // looping ghost sound during game
+};
+
 struct Game
 {
     TileMap map;
@@ -101,7 +111,10 @@ struct Game
     int popupvalue;
     Vector2 popuppos;
     float animtime;
+    Sounds sfx;
+    float chomptimer;
 };
+
 
 // Function to construct and return initial map data
 TileMap CreatePacmanMap()
@@ -768,6 +781,9 @@ void eatpellets(Game& game)
         game.pelletsleft--;
         game.dotseaten++;
         game.idletimer = 0.0f;
+        game.chomptimer = 0.2f;   // keep chomping for 0.2s
+        if (!IsMusicStreamPlaying(game.sfx.chomp))
+            PlayMusicStream(game.sfx.chomp);
     }
     else if (cell == 3)
     {
@@ -777,6 +793,7 @@ void eatpellets(Game& game)
         game.dotseaten++;
         game.idletimer = 0.0f;
         startscared(game);
+        PlaySound(game.sfx.powerup);
     }
 }
 void checkhits(Game& game)
@@ -804,12 +821,15 @@ void checkhits(Game& game)
             game.popuppos = g.pos;
             game.state = eatfreeze; // short pause after eating a ghost
             game.statetimer = 0.75f;
+            PlaySound(game.sfx.eatghost);
             return;
         }
         else
         {
             game.state = dying;
             game.statetimer = 0.0f;
+            StopMusicStream(game.sfx.siren);
+            PlaySound(game.sfx.death);
             return;
         }
     }
@@ -839,6 +859,7 @@ void updateplaying(Game& game)
     {
         game.state = levelclear;
         game.statetimer = 2.0f;
+        StopMusicStream(game.sfx.siren);
         return;
     }
 
@@ -853,18 +874,32 @@ void updategame(Game& game)
 
     if (game.state == title)
     {
-        if (IsKeyPressed(KEY_ENTER))
+        if (IsKeyPressed(KEY_ENTER)) {
+            StopMusicStream(game.sfx.titlesong);
             newgame(game);   // builds the level and switches to "ready"
+        }
+        UpdateMusicStream(game.sfx.titlesong);
+
     }
     else if (game.state == ready)
     {
         game.statetimer -= frametime;
-        if (game.statetimer <= 0.0f)
+        if (game.statetimer <= 0.0f) {
+            PlayMusicStream(game.sfx.siren);
             game.state = playing;
+        }
     }
     else if (game.state == playing)
     {
         updateplaying(game);
+        UpdateMusicStream(game.sfx.siren);
+        UpdateMusicStream(game.sfx.chomp);
+        if (game.chomptimer > 0.0f)
+        {
+            game.chomptimer -= frametime;
+            if (game.chomptimer <= 0.0f)
+                StopMusicStream(game.sfx.chomp);
+        }
     }
     else if (game.state == eatfreeze)
     {
@@ -1108,10 +1143,22 @@ int main()
     const int screenHeight = (MAP_ROWS * TILE_SIZE) + 40 + hudheight;
 
     InitWindow(screenWidth, screenHeight, "Pac-Man");
+    InitAudioDevice();
     SetTargetFPS(60);
 
     Game game = {};
     game.state = title;
+
+    game.sfx.eatghost = LoadSound("sounds/eatghost.wav");
+    game.sfx.death = LoadSound("sounds/death.wav");
+    game.sfx.powerup = LoadSound("sounds/powerup.wav");
+    game.sfx.titlesong = LoadMusicStream("sounds/titlesong.wav");
+    game.sfx.siren = LoadMusicStream("sounds/ghostsiren.wav");
+    game.sfx.chomp = LoadMusicStream("sounds/chomp.wav");
+    game.sfx.chomp.looping = true;
+    game.sfx.titlesong.looping = true;
+    game.sfx.siren.looping = true;
+    PlayMusicStream(game.sfx.titlesong);
 
     // Game loop
     while (!WindowShouldClose())
@@ -1124,6 +1171,15 @@ int main()
         EndDrawing();
     }
 
+    UnloadSound(game.sfx.eatghost);
+    UnloadSound(game.sfx.death);
+    UnloadSound(game.sfx.powerup);
+    UnloadMusicStream(game.sfx.titlesong);
+    UnloadMusicStream(game.sfx.siren);
+    UnloadMusicStream(game.sfx.chomp);
+
+
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }
